@@ -19,3 +19,11 @@ Amazon AWS Lambda function for accessing [Purple Air API](https://api.purpleair.
   * `Response status code` of 200
   * Add new mapping for `header.Content-Type`, `Overwrite` with value `text/html`.
 
+## Usage Instructions
+Access the created Amazon API Gateway, with the specified route, passing in a comma-delimited list of Purple API Sensor IDs for the sensors parameter.  You can look up sensor IDs via the [Purple Air Map](https://map.purpleair.com/).  Click on a particular sensor, and extract the value of the `select` URL parameter.
+
+e.g. [https://7s2d7gp912.execute-api.us-west-2.amazonaws.com/PurpleAirAPIFetch?sensors=108616,80327,134210,66167]
+
+## Implementation Notes
+* Purple Air sensors do not return AQIs.  Instead, they return particle counts, which need to be transformed to AQIs.
+* The temperature reading is not an environmental value; instead, it is the internal temperature of the sensor itself.  Testing has shown this to be 8° above the environmental temperature.  Read more [here](https://community.purpleair.com/t/purpleair-sensors-functional-overview/150).
