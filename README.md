@@ -22,7 +22,7 @@ Amazon AWS Lambda function for accessing [Purple Air API](https://api.purpleair.
 ## Usage Instructions
 Access the created Amazon API Gateway, with the specified route, passing in a comma-delimited list of Purple API Sensor IDs for the sensors parameter.  You can look up sensor IDs via the [Purple Air Map](https://map.purpleair.com/).  Click on a particular sensor, and extract the value of the `select` URL parameter.
 
-e.g. [https://7s2d7gp912.execute-api.us-west-2.amazonaws.com/PurpleAirAPIFetch?sensors=108616,80327,134210,66167]
+e.g. [Sample Implementation](https://7s2d7gp912.execute-api.us-west-2.amazonaws.com/PurpleAirAPIFetch?sensors=108616,80327,134210,66167)
 
 ## Implementation Notes
 * Purple Air sensors do not return AQIs.  Instead, they return particle counts, which need to be transformed to AQIs.
