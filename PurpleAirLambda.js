@@ -1,5 +1,8 @@
 import * as https from 'https';
 
+// Expecting HTTP GET on /PurpleAirAPIFetch?sensors=108616,80327,134210,66167
+// Pass in comma-separate list of sensor IDs via sensors URL parameter, or leave blank to fetch SensorsList
+
 /*
 Sample JSON that we are parsing, returned by
 https://api.purpleair.com/v1/sensors?show_only=108616,80327,134210,66167&fields=name,temperature,pm2.5,pm2.5_10minute,pm2.5_30minute,pm2.5_60minute,pm2.5_6hour,pm2.5_24hour,pm2.5_1week&api_key=${process.env.API_KEY}
@@ -19,26 +22,7 @@ https://api.purpleair.com/v1/sensors?show_only=108616,80327,134210,66167&fields=
 }
 */
 
-// Expecting HTTP GET on /PurpleAirAPIFetch
-
-export const handler = async(event) => {
-    // console.log(event);
-    const { body, statusCode } = await fetch();
-    const response = {
-        statusCode,
-        body,
-    };
-    return response;
-};
-
-const API_KEY = process.env.API_KEY; // Or update this with your API KEY
-
-const SensorList = [
-    '108616',
-    '80327',
-    '134210',
-    '66167'
-];
+const API_KEY = process.env.API_KEY; // Either define API_KEY in your Lambda execution environment, or update this with the value of your Purple Air Read API KEY
 
 const FieldList = [
     'name',
@@ -91,16 +75,20 @@ th, td {
 </head>
 `;
 
-function handleError(error, statusCode) {
-    const body = `Error: ${error.message}`;
-    console.error(body);
-    return { body, statusCode: statusCode ?? 500 };
-}
+export const handler = async(event) => {
+    // console.log(event);
+    const { statusCode, body } = await fetch(event);
+    return { statusCode, body, };
+};
 
-// returns { body: string, statusCode: number }
-async function fetch() {
-    return new Promise((resolve, reject) => {
-        const urlPurpleAirAPI = `https://api.purpleair.com/v1/sensors?show_only=${SensorList.join(',')}&fields=${FieldList.join(',')}&api_key=${API_KEY}`
+// returns { statusCode: number, body: string }
+async function fetch(event) {
+    return new Promise((resolve) => {
+        const sensors = event?.queryStringParameters?.sensors;
+        if (!sensors)
+            return resolve(handleError(new Error('API Called without required comma-delimited sensors parameter')));
+
+        const urlPurpleAirAPI = `https://api.purpleair.com/v1/sensors?show_only=${sensors}&fields=${FieldList.join(',')}&api_key=${API_KEY}`
         // console.log(`Fetching from ${urlPurpleAirAPI}`);
 
         https.get(urlPurpleAirAPI, (res) => {
@@ -108,94 +96,97 @@ async function fetch() {
             const contentType = res.headers['content-type'];
 
             if (statusCode !== 200)
-                return reject(handleError(new Error('Request Failed.\n' + `Status Code: ${statusCode}`), statusCode));
+                return resolve(handleError(new Error('Request Failed.\n' + `Status Code: ${statusCode}`), statusCode));
             else if (!/^application\/json/.test(contentType))
-                return reject(handleError(new Error('Invalid content-type.\n' + `Expected application/json but received ${contentType}`)));
+                return resolve(handleError(new Error('Invalid content-type.\n' + `Expected application/json but received ${contentType}`)));
             
             let rawData = '';
             res.setEncoding('utf8');
             res.on('data', (chunk) => { rawData += chunk; });
-            res.on('end', () => {
-                let body = "";
-                try {
-                    const parsedData = JSON.parse(rawData);
-                    // console.log(parsedData);
-
-                    const fields = parsedData?.fields;
-                    const data = parsedData?.data;
-                    if (!fields)
-                        return reject(handleError(new Error(`API Response missing expected 'fields' property`)));
-                    if (!data)
-                        return reject(handleError(new Error(`API Response missing expected 'data' property`)));
-
-                    // Compute sort order of sensors, using order presented in SensorList
-                    const sensorSort = new Map();
-                    let sensorIndex = 0;
-                    for (const sensor of SensorList) {
-                        // console.log(`Setting ${Number(sensor)} to ${sensorIndex}`);
-                        sensorSort.set(Number(sensor), sensorIndex++);
-                    }
-
-                    // Sort data per sensor list order
-                    data.sort((a, b) => {
-                        const aSort = sensorSort.get(a[0]);
-                        const bSort = sensorSort.get(b[0]);
-                        // console.log(`Comparing ${JSON.stringify(a)} to ${JSON.stringify(b)}, using ${a[0]} vs ${b[0]}; found ${aSort} and ${bSort}`);
-                        return aSort - bSort;
-                    });
-
-                    body += HTMLHeader;
-                    body += '<body>\n<table>\n';
-
-                    const fieldMap = new Map(FieldMapper);
-                    const aqiConvert = [];
-                    let tempConvert = -1
-                    let fieldIndex = 0;
-                    for (const field of fields) {
-                        aqiConvert.push(field.startsWith('pm')); // true -> we'll convert to AQI for this field
-                        if (field === 'temperature')
-                            tempConvert = fieldIndex;
-                        const mapped = fieldMap.get(field);
-                        body += `<th>${mapped ?? field}</th>`;
-                        fieldIndex++;
-                    }
-                    body += '\n';
-                        
-                    // process sensor data
-                    let row = 0;
-                    for (const sensorData of data) {
-                        let rowClass = '';
-                        if ((++row % 2) == 1)
-                            rowClass = ' class="odd"';
-                        body += `<tr${rowClass}>`;
-
-                        // process each field of sensor data, converting to AQI, tweaking temperature, and setting display class
-                        let index = 0;
-                        for (let field of sensorData) {
-                            let dataClass = '';
-                            if (aqiConvert[index]) {
-                                field = aqiFromPM(field);
-                                dataClass = classFromAQI(field);
-                                if (dataClass)
-                                    dataClass = ` class="${dataClass}"`;
-                            } else if (index === tempConvert)
-                                field -= 8; // Subtract 8° from temp, per https://community.purpleair.com/t/purpleair-sensors-functional-overview/150
-
-                            body += `<td${dataClass}>${field}</td>`;
-                            index++;
-                        }
-                        body += '</tr>\n';
-                    }
-                    body += '</table></body></html>\n';
-                    return resolve({ body, statusCode: 200 });
-                } catch (error) {
-                    return reject(handleError(error));
-                }
-            });
+            res.on('end', () => handlePurpleAPIResponse(resolve, sensors, rawData));
         }).on('error', (error) => {
-            return reject(handleError(error));
+            return resolve(handleError(error));
         });
     });
+}
+
+function handlePurpleAPIResponse(resolve, sensors, rawData) {
+    let body = "";
+    try {
+        const parsedData = JSON.parse(rawData);
+        const fields = parsedData?.fields;
+        const data = parsedData?.data;
+        if (!fields)
+            return resolve(handleError(new Error(`API Response missing expected 'fields' property`)));
+        if (!data)
+            return resolve(handleError(new Error(`API Response missing expected 'data' property`)));
+
+        // Compute sort order of sensors
+        const sensorSort = new Map();
+        let sensorIndex = 0;
+        for (const sensor of sensors.split(','))
+            sensorSort.set(Number(sensor), sensorIndex++);
+
+        // Sort data per sensor list order
+        data.sort((a, b) => {
+            const aSort = sensorSort.get(a[0]);
+            const bSort = sensorSort.get(b[0]);
+            return aSort - bSort;
+        });
+
+        body += HTMLHeader;
+        body += '<body>\n<table>\n';
+
+        const fieldMap = new Map(FieldMapper);
+        const aqiConvert = [];
+        let tempConvert = -1
+        let fieldIndex = 0;
+        for (const field of fields) {
+            aqiConvert.push(field.startsWith('pm')); // true -> we'll convert to AQI for this field
+            if (field === 'temperature')
+                tempConvert = fieldIndex;
+            const mapped = fieldMap.get(field);
+            body += `<th>${mapped ?? field}</th>`;
+            fieldIndex++;
+        }
+        body += '\n';
+            
+        // process sensor data
+        let rowNumber = 0;
+        for (const sensorData of data) {
+            let rowClass = '';
+            if ((++rowNumber % 2) == 1)
+                rowClass = ' class="odd"';
+            body += `<tr${rowClass}>`;
+
+            // process each field of sensor data, converting to AQI, tweaking temperature, and setting display class
+            let fieldIndex = 0;
+            for (let field of sensorData) {
+                let dataClass = '';
+                if (aqiConvert[fieldIndex]) {
+                    field = aqiFromPM(field);
+                    dataClass = classFromAQI(field);
+                    if (dataClass)
+                        dataClass = ` class="${dataClass}"`;
+                } else if (fieldIndex === tempConvert)
+                    field -= 8; // Subtract 8° from temp, per https://community.purpleair.com/t/purpleair-sensors-functional-overview/150
+
+                body += `<td${dataClass}>${field}</td>`;
+                fieldIndex++;
+            }
+            body += '</tr>\n';
+        }
+        body += '</table></body></html>\n';
+        return resolve({ statusCode: 200, body });
+    } catch (error) {
+        return resolve(handleError(error));
+    }
+}
+
+function handleError(error, statusCode) {
+    const body = `Error: ${error.message}`;
+    console.error(body);
+    return { statusCode: statusCode ?? 500, body };
 }
 
 /*                                      AQI         RAW PM2.5
@@ -226,10 +217,14 @@ function classFromAQI(aqi) {
 
 // from https://community.purpleair.com/t/how-to-calculate-the-us-epa-pm2-5-aqi/877
 function aqiFromPM(pm) {
-    if (isNaN(pm)) return "-"; 
-    if (pm == undefined) return "-";
-    if (pm < 0) return pm; 
-    if (pm > 1000) return "-"; 
+    if (isNaN(pm))
+        return "-"; 
+    if (pm == undefined)
+        return "-";
+    if (pm < 0)
+        return pm; 
+    if (pm > 1000)
+        return "-"; 
 
     if (pm > 350.5)
         return calcAQI(pm, 500, 401, 500.4, 350.5); //Hazardous
