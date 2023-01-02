@@ -2,7 +2,7 @@ import * as https from 'https';
 
 /*
 Sample JSON that we are parsing, returned by
-https://api.purpleair.com/v1/sensors?show_only=108616,80327,134210,66167&fields=name,temperature,pm2.5,pm2.5_10minute,pm2.5_30minute,pm2.5_60minute,pm2.5_6hour,pm2.5_24hour,pm2.5_1week&api_key=PURPLE_AIR_READ_API_KEY_HERE
+https://api.purpleair.com/v1/sensors?show_only=108616,80327,134210,66167&fields=name,temperature,pm2.5,pm2.5_10minute,pm2.5_30minute,pm2.5_60minute,pm2.5_6hour,pm2.5_24hour,pm2.5_1week&api_key=${process.env.API_KEY}
 {
   "api_version" : "V1.0.11-0.0.42",
   "time_stamp" : 1672454276,
@@ -31,7 +31,7 @@ export const handler = async(event) => {
     return response;
 };
 
-const API_KEY = 'PURPLE_AIR_READ_API_KEY_HERE';
+const API_KEY = process.env.API_KEY; // Or update this with your API KEY
 
 const SensorList = [
     '108616',
