@@ -24,21 +24,10 @@ https://api.purpleair.com/v1/sensors?show_only=108616,80327,134210,66167&fields=
 
 const API_KEY = process.env.API_KEY; // Either define API_KEY in your Lambda execution environment, or update this with the value of your Purple Air Read API KEY
 
-const FieldList = [
-    'name',
-    'pm2.5',
-    'pm2.5_10minute',
-    'pm2.5_30minute',
-    'pm2.5_60minute',
-    'pm2.5_6hour',
-    'pm2.5_24hour',
-    'pm2.5_1week',
-    'temperature',
-];
-
 const FieldMapper = [
     [ 'sensor_index', 'Sensor ID' ],
     [ 'name', 'Name' ],
+    [ 'location_type', 'Type' ],
     [ 'temperature', 'Temp' ],
     [ 'pm2.5', 'Instant' ],
     [ 'pm2.5_10minute', '10 Min' ],
@@ -88,7 +77,9 @@ async function fetch(event) {
         if (!sensors)
             return resolve(handleError(new Error('API Called without required comma-delimited sensors parameter')));
 
-        const urlPurpleAirAPI = `https://api.purpleair.com/v1/sensors?show_only=${sensors}&fields=${FieldList.join(',')}&api_key=${API_KEY}`
+        const fieldMap = new Map(FieldMapper);
+        const fieldList = Array.from(fieldMap.keys());
+        const urlPurpleAirAPI = `https://api.purpleair.com/v1/sensors?show_only=${sensors}&fields=${fieldList.join(',')}&api_key=${API_KEY}`
         // console.log(`Fetching from ${urlPurpleAirAPI}`);
 
         https.get(urlPurpleAirAPI, (res) => {
@@ -103,18 +94,19 @@ async function fetch(event) {
             let rawData = '';
             res.setEncoding('utf8');
             res.on('data', (chunk) => { rawData += chunk; });
-            res.on('end', () => handlePurpleAPIResponse(resolve, sensors, rawData));
+            res.on('end', () => handlePurpleAPIResponse(resolve, sensors, fieldMap, rawData));
         }).on('error', (error) => {
             return resolve(handleError(error));
         });
     });
 }
 
-function handlePurpleAPIResponse(resolve, sensors, rawData) {
+function handlePurpleAPIResponse(resolve, sensors, fieldMap, rawData) {
     let body = "";
     try {
         const parsedData = JSON.parse(rawData);
         const fields = parsedData?.fields;
+        const locationTypes = parsedData?.location_types;
         const data = parsedData?.data;
         if (!fields)
             return resolve(handleError(new Error(`API Response missing expected 'fields' property`)));
@@ -134,17 +126,29 @@ function handlePurpleAPIResponse(resolve, sensors, rawData) {
             return aSort - bSort;
         });
 
+        // Compute Location Types
+        const locationTypeMap = new Map();
+        if (locationTypes) {
+            let locationTypeIndex = 0;
+            for (const locationType of locationTypes)
+                locationTypeMap.set(locationTypeIndex++, locationType);
+        }
+
         body += HTMLHeader;
         body += '<body>\n<table>\n';
 
-        const fieldMap = new Map(FieldMapper);
+        // Process fields and compute which need special handling/conversions
         const aqiConvert = [];
         let tempConvert = -1
+        let locationConvert = -1;
         let fieldIndex = 0;
         for (const field of fields) {
             aqiConvert.push(field.startsWith('pm')); // true -> we'll convert to AQI for this field
-            if (field === 'temperature')
-                tempConvert = fieldIndex;
+            switch (field) {
+                case 'temperature': tempConvert = fieldIndex; break;
+                case 'location_type': locationConvert = fieldIndex; break;
+            }
+                
             const mapped = fieldMap.get(field);
             body += `<th>${mapped ?? field}</th>`;
             fieldIndex++;
@@ -170,6 +174,8 @@ function handlePurpleAPIResponse(resolve, sensors, rawData) {
                         dataClass = ` class="${dataClass}"`;
                 } else if (fieldIndex === tempConvert)
                     field -= 8; // Subtract 8° from temp, per https://community.purpleair.com/t/purpleair-sensors-functional-overview/150
+                else if (fieldIndex === locationConvert)
+                    field = locationTypeMap.get(field) ?? 'Unknown';
 
                 body += `<td${dataClass}>${field}</td>`;
                 fieldIndex++;
@@ -184,8 +190,8 @@ function handlePurpleAPIResponse(resolve, sensors, rawData) {
 }
 
 function handleError(error, statusCode) {
-    const body = `Error: ${error.message}`;
-    console.error(body);
+    const body = `${HTMLHeader}\n<body>Error: ${error.message}</body>`;
+    console.error(error.message);
     return { statusCode: statusCode ?? 500, body };
 }
 
