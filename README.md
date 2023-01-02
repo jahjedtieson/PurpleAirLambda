@@ -25,5 +25,5 @@ Access the created Amazon API Gateway, with the specified route, passing in a co
 e.g. [Sample Implementation](https://7s2d7gp912.execute-api.us-west-2.amazonaws.com/PurpleAirAPIFetch?sensors=108616,80327,134210,66167)
 
 ## Implementation Notes
-* Purple Air sensors do not return AQIs.  Instead, they return particle counts, which need to be transformed to AQIs.
+* Purple Air sensors do not return AQIs.  Instead, they return particle counts, which need to be [transformed to AQIs](https://community.purpleair.com/t/how-to-calculate-the-us-epa-pm2-5-aqi/877).
 * The temperature reading is not an environmental value; instead, it is the internal temperature of the sensor itself.  Testing has shown this to be 8° above the environmental temperature.  Read more [here](https://community.purpleair.com/t/purpleair-sensors-functional-overview/150).
